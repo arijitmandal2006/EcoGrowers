@@ -269,7 +269,7 @@
                                 mapMessage.classList.add('hidden');
                                 resolve();
                             } else {
-                                mapMessage.textContent = 'No location data found in this image.';
+                                mapMessage.textContent = 'No location data(EXIF) found in this image.';
                                 mapMessage.classList.remove('hidden');
                                 initMap(); // Re-initialize the map if no GPS data
                                 resolve();
@@ -338,7 +338,7 @@
     
                 } catch (error) {
                     console.error('Error:', error);
-                    statusMessage.textContent = 'Error during detection.';
+                    statusMessage.textContent = 'Error during detection.Use laptop for better experience.';
                     statusMessage.classList.add('text-red-600');
                     classMessage.textContent = `Please try again or select a different image.`;
                 } finally {
@@ -393,4 +393,5 @@
 
 </body>
 </html>
+
 
