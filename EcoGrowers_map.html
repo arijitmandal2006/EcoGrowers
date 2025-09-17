@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EcoGrowers</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Leaflet CSS for the map -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <!-- EXIF.js to read GPS metadata from images -->
+    <script src="https://cdn.jsdelivr.net/npm/exif-js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(to bottom right, #e0ffe0, #c8e6c9);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+        }
+        
+        #map {
+            height: 400px;
+            width: 100%;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            transition: all 0.5s ease-in-out;
+        }
+
+        .leaflet-marker-icon.green-marker {
+            background-color: #22c55e;
+            border-radius: 50%;
+            border: 3px solid #fff;
+        }
+
+        .leaflet-marker-icon.red-marker {
+            background-color: #ef4444;
+            border-radius: 50%;
+            border: 3px solid #fff;
+        }
+
+        #drop-zone {
+            border: 2px dashed #a3e635;
+            background-color: #f7fee7;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        #drop-zone:hover, .drag-over {
+            border-color: #4ade80;
+            background-color: #f0fdf4;
+            transform: scale(1.01);
+        }
+
+        #fileInput {
+            display: none;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center p-4">
+
+    <div class="bg-white shadow-xl rounded-2xl p-8 max-w-4xl w-full text-center transition-all duration-300">
+        <h1 class="text-3xl font-bold mb-2 text-green-700">Plant Health Detector by EcoGrowers</h1>
+        <p class="text-gray-600 mb-6">Choose an image or drag and drop a file.</p>
+
+        <!-- Input Section -->
+        <div id="drop-zone" class="flex flex-col items-center justify-center p-8 rounded-lg">
+            <svg class="h-16 w-16 text-green-500 mb-4" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM13 17V13H17V11H13V7H11V11H7V13H11V17H13Z" fill="currentColor"/>
+            </svg>
+            <p class="text-lg text-gray-600 mb-2">Drag & Drop Image Here</p>
+            <p class="text-sm text-gray-500 mb-4">or</p>
+            <button id="detectBtn" class="px-6 py-3 bg-green-600 text-white font-semibold rounded-lg shadow-md hover:bg-green-700 transition duration-300 ease-in-out">
+                Select Image
+            </button>
+            <input type="file" id="fileInput" accept="image/*" required>
+        </div>
+
+        <!-- Loading Indicator -->
+        <div id="loadingIndicator" class="hidden mt-8">
+            <div class="flex items-center justify-center flex-col">
+                <svg class="animate-spin h-12 w-12 text-green-500 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span class="text-gray-600 text-lg font-semibold">Analyzing your plant...</span>
+            </div>
+        </div>
+        
+        <!-- Main Content Area with two columns -->
+        <div id="mainContent" class="flex flex-col md:flex-row md:space-x-8 mt-8 hidden">
+            <!-- Left Column: Image and Status -->
+            <div id="leftColumn" class="md:w-1/2 flex flex-col items-center">
+                <!-- Result Container -->
+                <div id="resultContainer" class="w-full text-center">
+                    <h2 id="statusMessage" class="text-2xl font-bold mb-4"></h2>
+                    <img id="plantImage" src="" alt="Uploaded Plant Image" class="w-full h-auto rounded-xl shadow-lg mb-4 mx-auto object-cover border-4 border-white transition-opacity duration-500 ease-in-out">
+                    <p id="classMessage" class="text-lg text-gray-700 font-medium"></p>
+                </div>
+            </div>
+
+            <!-- Right Column: Treatment and Map -->
+            <div id="rightColumn" class="md:w-1/2 flex flex-col mt-8 md:mt-0">
+                <!-- Treatment Section -->
+                <div id="treatmentContainer" class="hidden text-left bg-gray-50 p-6 rounded-xl shadow-inner mt-6">
+                    <h3 class="text-xl font-bold text-gray-800 mb-2">Recommended Treatment</h3>
+                    <p id="treatmentMessage" class="text-gray-700 leading-relaxed"></p>
+                </div>
+                <!-- Map Section -->
+                <div id="mapContainer" class="hidden w-full text-center">
+                    <h3 class="text-xl font-bold text-gray-800 mb-2 text-center">Plant Location</h3>
+                    <div id="map" class="mt-4"></div>
+                    <p id="mapMessage" class="text-sm text-gray-500 mt-2 hidden text-center"></p>
+                </div>
+                
+            
+            </div>
+        </div>
+
+        <!-- Message Box for Alerts -->
+        <div id="messageBox" class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-gray-800 text-white px-6 py-4 rounded-lg shadow-xl z-50 hidden transition-opacity duration-300">
+            <p id="messageText"></p>
+        </div>
+
+        <!-- Footer -->
+        <footer class="mt-8 pt-4 border-t-2 border-gray-200 text-gray-500 text-sm">
+            <p>&copy; 2025 SIH ECOGROWERS.</p>
+            <p>⚠️ Disclaimer: Our AI model is still under development and may not always provide fully accurate results. For the best performance, it is currently optimized for potato leaves. We are actively improving the system to support a wider range of plants and provide tailored pesticide recommendations.
+</p>
+        </footer>
+    </div>
+
+    <script>
+        const ROBOFLOW_API_KEY = "tlfGdqpefFihVIlt0Qav";
+        const ROBOFLOW_API_URL = "https://serverless.roboflow.com/plant-disease-detection-3anip/1";
+        
+        const GEMINI_API_KEY = "AIzaSyDLdJIGA8FTQlXZkJinXcF73VbqgbNnBSs"; 
+        const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${GEMINI_API_KEY}`;
+
+        const detectBtn = document.getElementById('detectBtn');
+        const fileInput = document.getElementById('fileInput');
+        const loadingIndicator = document.getElementById('loadingIndicator');
+        const resultContainer = document.getElementById('resultContainer');
+        const statusMessage = document.getElementById('statusMessage');
+        const classMessage = document.getElementById('classMessage');
+        const plantImage = document.getElementById('plantImage');
+        const treatmentContainer = document.getElementById('treatmentContainer');
+        const treatmentMessage = document.getElementById('treatmentMessage');
+        const mapContainer = document.getElementById('mapContainer');
+        const mapMessage = document.getElementById('mapMessage');
+        const messageBox = document.getElementById('messageBox');
+        const messageText = document.getElementById('messageText');
+        const dropZone = document.getElementById('drop-zone');
+        const mainContent = document.getElementById('mainContent');
+        
+        let map;
+        let marker;
+
+        // Initialize Leaflet map with a default global view
+        function initMap() {
+            if (map) {
+                map.remove();
+            }
+            map = L.map('map').setView([20, 0], 2); // Default center, low zoom
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: 'ECOGROWERS'
+            }).addTo(map);
+        }
+
+        // Function to display a temporary message in the message box
+        function showMessage(msg) {
+            messageText.textContent = msg;
+            messageBox.classList.remove('hidden');
+            messageBox.style.opacity = '1';
+            setTimeout(() => {
+                messageBox.style.opacity = '0';
+                setTimeout(() => messageBox.classList.add('hidden'), 300);
+            }, 3000);
+        }
+
+        // Function to convert GPS (DMS) to Decimal
+        function dmsToDecimal(dms, ref) {
+            const decimal = dms[0] + dms[1] / 60 + dms[2] / 3600;
+            return (ref === "S" || ref === "W") ? decimal * -1 : decimal;
+        }
+
+        async function getTreatmentRecommendation(diseaseName) {
+            const prompt = `Provide a concise treatment recommendation for a plant disease in India. The disease is "${diseaseName}". Include the name of a recommended pesticide or treatment method and the quantity and frequency of use. Respond with only the recommendation, without any additional conversational text.`;
+            
+            try {
+                const response = await fetch(GEMINI_API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        contents: [{
+                            parts: [{
+                                text: prompt
+                            }]
+                        }]
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Gemini API call failed with status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                const recommendation = data.candidates[0].content.parts[0].text;
+                return recommendation;
+
+            } catch (error) {
+                console.error("Gemini API Error:", error);
+                return "Could not retrieve a treatment recommendation at this time. Please consult a professional.";
+            }
+        }
+        
+        // Main function to process the selected/dropped file
+        async function processFile(file) {
+            // Hide all previous results and show loading
+            mainContent.classList.add('hidden');
+            loadingIndicator.classList.remove('hidden');
+
+            if (!file) {
+                loadingIndicator.classList.add('hidden');
+                showMessage('Please select an image file.');
+                return;
+            }
+
+            // Read the image file and get EXIF data
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                plantImage.src = e.target.result;
+                const base64Image = e.target.result.split(',')[1];
+                
+                let detectedClass = 'No disease detected';
+                let gpsCoords = null;
+                let isDiseased = false;
+                
+                // Show the main content and map container once analysis starts
+                mainContent.classList.remove('hidden');
+                mapContainer.classList.remove('hidden');
+                
+                // Remove previous markers if they exist
+                if (marker) {
+                    map.removeLayer(marker);
+                }
+
+                try {
+                    // Step 1: Get GPS coordinates from EXIF data
+                    await new Promise((resolve) => {
+                        EXIF.getData(file, function() {
+                            const lat = EXIF.getTag(this, "GPSLatitude");
+                            const lon = EXIF.getTag(this, "GPSLongitude");
+                            const latRef = EXIF.getTag(this, "GPSLatitudeRef");
+                            const lonRef = EXIF.getTag(this, "GPSLongitudeRef");
+
+                            if (lat && lon) {
+                                const latDec = dmsToDecimal(lat, latRef);
+                                const lonDec = dmsToDecimal(lon, lonRef);
+                                gpsCoords = [latDec, lonDec];
+                                mapMessage.classList.add('hidden');
+                                resolve();
+                            } else {
+                                mapMessage.textContent = 'No location data found in this image.';
+                                mapMessage.classList.remove('hidden');
+                                initMap(); // Re-initialize the map if no GPS data
+                                resolve();
+                            }
+                        });
+                    });
+
+                    // Step 2: Send image to Roboflow for detection
+                    const roboflowResponse = await fetch(`${ROBOFLOW_API_URL}?api_key=${ROBOFLOW_API_KEY}`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'text/plain'
+                        },
+                        body: base64Image
+                    });
+    
+                    if (!roboflowResponse.ok) {
+                        const errorText = await roboflowResponse.text();
+                        console.error('Roboflow API Error Response:', errorText);
+                        throw new Error(`Roboflow API call failed with status: ${roboflowResponse.statusText}`);
+                    }
+    
+                    const data = await roboflowResponse.json();
+                    console.log('Roboflow API Response Data:', data);
+    
+                    if (data.predictions && data.predictions.length > 0) {
+                        detectedClass = data.predictions[0].class;
+                        
+                        if (detectedClass.includes("blight") || detectedClass.includes("virus") || detectedClass.includes("rust") || detectedClass.includes("bacterial")|| detectedClass.includes("black rot")|| detectedClass.includes("spotted spider mites")) {
+                            isDiseased = true;
+                        }
+                    }
+    
+                    // Step 3: Update UI based on detection result
+                    resultContainer.classList.remove('hidden');
+                    statusMessage.textContent = isDiseased ? 'Infected' : 'Healthy';
+                    statusMessage.classList.add(isDiseased ? 'text-red-600' : 'text-green-600');
+                    classMessage.textContent = `Detected Class: ${detectedClass}`;
+    
+                    treatmentContainer.classList.remove('hidden');
+                    if (isDiseased) {
+                        const treatment = await getTreatmentRecommendation(detectedClass);
+                        treatmentMessage.textContent = treatment;
+                    } else {
+                        treatmentMessage.textContent = "Your plant appears to be healthy. Continue with good plant care practices.";
+                    }
+                    
+                    // Step 4: Update the map with the marker if GPS data was found
+                    if (gpsCoords) {
+                        initMap();
+                        
+                        const latLng = L.latLng(gpsCoords[0], gpsCoords[1]);
+                        
+                        // Create custom icon
+                        const markerIcon = L.divIcon({
+                            className: isDiseased ? 'red-marker' : 'green-marker',
+                            iconSize: [20, 20],
+                            iconAnchor: [10, 10],
+                            popupAnchor: [0, -10]
+                        });
+                        
+                        marker = L.marker(latLng, { icon: markerIcon }).addTo(map);
+                        marker.bindPopup(`<b>Status:</b> ${isDiseased ? 'Infected' : 'Healthy'}<br><b>Disease:</b> ${detectedClass}`).openPopup();
+                        map.setView(latLng, 12);
+                    }
+    
+                } catch (error) {
+                    console.error('Error:', error);
+                    statusMessage.textContent = 'Error during detection.';
+                    statusMessage.classList.add('text-red-600');
+                    classMessage.textContent = `Please try again or select a different image.`;
+                } finally {
+                    loadingIndicator.classList.add('hidden');
+                }
+            };
+            reader.readAsDataURL(file);
+        }
+
+        // Event listener for the "Select Image" button
+        detectBtn.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        // Event listener for when a file is selected
+        fileInput.addEventListener('change', () => {
+            const file = fileInput.files[0];
+            if (file) {
+                processFile(file);
+            }
+        });
+
+        // Event listeners for drag and drop functionality
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.classList.add('drag-over');
+        });
+
+        dropZone.addEventListener('dragleave', (e) => {
+            e.stopPropagation();
+            dropZone.classList.remove('drag-over');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.classList.remove('drag-over');
+
+            const file = e.dataTransfer.files[0];
+            if (file && file.type.startsWith('image/')) {
+                fileInput.files = e.dataTransfer.files; // Update file input
+                processFile(file);
+            } else {
+                showMessage("Please drop a valid image file.");
+            }
+        });
+        
+        // Initialize the map on page load
+        window.onload = initMap;
+    </script>
+
+</body>
+</html>
